@@ -361,7 +361,7 @@ class DAOPHOT ( object ):
         }
         options = ""
         for key, value in sexconf.iteritems():
-            print key, value
+            # print key, value
             options += "-%s %s " % (key, value)
 
         cmd = "sex %s %s" % (options, self.fitsfile)
@@ -374,7 +374,7 @@ class DAOPHOT ( object ):
         # now select a bunch of stars with the right amount of peak flux, 
         # no flags, and a median fwhm
         no_flags = (catalog[:, 7] == 0)
-        peak_flux = 450 #numpy.max(catalog[:, 11])
+        peak_flux = numpy.max(catalog[:, 11]) # 450
         good_flux = (catalog[:,11] > 0.2 * peak_flux) & (catalog[:,11] < 0.5*peak_flux)
         catalog = catalog[no_flags & good_flux]
         numpy.savetxt("test2.cat", catalog)
@@ -647,6 +647,108 @@ class ALLSTAR ( object ):
                 pass
 
 
+
+def run_all_steps(options,
+                  filename,
+                  prescale=1.0, 
+                  add_sky=0.,
+                  gain=1.3, 
+                  readnoise=5.0,
+                  ):
+
+    if (options.allstar == ""):
+        #filename = cmdline_args[0]
+        print("Running DAOPhot on %s" % (filename))
+
+        # open file and read some parameters
+        hdulist = pyfits.open(filename)
+
+        if (type(gain) == str):
+            gain = hdulist[0].header['GAIN']
+        if (type(readnoise) == str):
+            readnoise = hdulist[0].header['RDNOISE']
+
+        #
+        # If available, open the weight file, and set all undefined pixels
+        # to NaN to properly mask them out.
+        #
+        weightfile = filename[:-5]+".weight.fits"
+        if (os.path.isfile(weightfile)):
+            weights_hdu = pyfits.open(weightfile)
+            weights = weights_hdu[0].data
+
+            hdulist[0].data[weights <= 0] = numpy.NaN
+
+        #
+        # Apply pre-scaling and re-add the background to allow proper 
+        # noise estimation that we will need for source detection and to
+        # yield proper photometric errors.
+        #
+        hdulist[0].data = (hdulist[0].data * prescale) + add_sky
+        
+        #
+        # write the hdulist as a temp-file
+        #
+        tmpfile = "/tmp/pid%d.fits" % (os.getpid())
+        hdulist.writeto(tmpfile, clobber=True)   
+        print "tmp-file:", tmpfile
+
+        #time.sleep(2)
+
+        #
+        # Start daophot and read the FITS file.
+        #
+        dao = DAOPHOT(options=options, 
+                      fitsfile=tmpfile, 
+                      threshold=options.threshold)
+
+        dao.attach(tmpfile)
+
+        #
+        # set DAOPhot internal parameters
+        #
+        psf_width = 25.0
+        fitting_radius = 10. #10*psf_width
+        dao.options(thresh=options.threshold,
+                    psf=psf_width,
+                    fitting=fitting_radius,
+                    extra=5,
+                    watch=0)
+
+        # estimate sky background
+        dao.sky()
+
+        # find sources; make sure to set the right number of sum/avg samples
+        dao.find(avg=2)
+
+        # run aperture photometry
+        dao.phot(IS=10, OS=20, A1=4.5, A2=5)
+
+        # select appropriate PSF stars
+        dao.pick_midrange()
+        dao.pick(nstars=25, maglimit=18)
+
+        # estimate PSF
+        good_psf = dao.psf(interactive=False)
+
+        dao.exit()
+        
+        dao.save_files(options.outdir)
+    else:
+        tmpfile = options.allstar
+
+    #
+    # if we have a well-defined PSF, go on to fit all stars in the frame
+    # using ALLSTAR
+    #
+    if (good_psf):
+        # allstar = ALLSTAR(options, tmpfile, FIT=fitting_radius, IS=0, OS=4)
+        allstar = ALLSTAR(options, tmpfile, FIT=fitting_radius, IS=4, OS=40)
+        allstar.save_files(options.outdir)
+    else:
+        print "Can't run ALLSTAR since we did not derive a converged PSF fit"
+
+
 if __name__ == "__main__":
 
     parser = OptionParser()
@@ -674,71 +776,13 @@ if __name__ == "__main__":
     daophot_exe = "%s/daophot" % (options.dao_dir)
     allstar_exe = "%s/allstar" % (options.dao_dir)
 
-    if (options.allstar == ""):
-        filename = cmdline_args[0]
-        print("Running DAOPhot on %s" % (filename))
-
-        # open file and read some parameters
-        hdulist = pyfits.open(filename)
-
-        gain = 1.3 #hdulist[0].header['GAIN']
-        readnoise = 7.0 #hdulist[0].header['RDNOISE']
-
-
-        weightfile = filename[:-5]+".weight.fits"
-        if (os.path.isfile(weightfile)):
-            weights_hdu = pyfits.open(weightfile)
-            weights = weights_hdu[0].data
-
-            hdulist[0].data[weights <= 0] = numpy.NaN
-
-        # write the hdulist as a temp-file
-        tmpfile = "/tmp/pid%d.fits" % (os.getpid())
-        hdulist.writeto(tmpfile, clobber=True)   
-        print "tmp-file:", tmpfile
-
-        #time.sleep(2)
-
-        dao = DAOPHOT(options=options, 
-                      fitsfile=tmpfile, 
-                      threshold=options.threshold)
-
-        dao.attach(tmpfile)
-
-
-        psf_width = 25.0
-        fitting_radius = 10. #10*psf_width
-        dao.options(thresh=options.threshold,
-                    psf=psf_width,
-                    fitting=fitting_radius,
-                    extra=5,
-                    watch=0)
-
-
-        dao.sky()
-
-        dao.find(avg=2)
-
-        dao.phot(IS=10, OS=20, A1=4.5, A2=5)
-
-        dao.pick_midrange()
-
-        dao.pick(nstars=25, maglimit=18)
-
-        good_psf = dao.psf(interactive=False)
-
-        dao.exit()
-        
-        dao.save_files(options.outdir)
-    else:
-        tmpfile = options.allstar
-
-    if (good_psf):
-        # allstar = ALLSTAR(options, tmpfile, FIT=fitting_radius, IS=0, OS=4)
-        allstar = ALLSTAR(options, tmpfile, FIT=fitting_radius, IS=4, OS=40)
-        allstar.save_files(options.outdir)
-    else:
-        print "Can't run ALLSTAR since we did not derive a converged PSF fit"
+    run_all_steps(options=options,
+                  filename=cmdline_args[0],
+                  prescale=1.0, 
+                  add_sky=0.,
+                  gain=1.3, 
+                  readnoise=5.0,
+                  )
 
     sys.exit(0)
 
