@@ -10,7 +10,7 @@ sys.path.append("/work/podi_prep56")
 from podi_definitions import *
 
 from optparse import OptionParser
-
+import scipy.stats
 
 class ProcessHandler( object ):
 
@@ -324,7 +324,93 @@ class DAOPHOT ( object ):
         # #
         # phot, found = daophot.read_until(["Command:"], timeout=-1)
 
+    def pick_midrange(self):
+        
+        with open("default.param", "w") as param:
+            print >>param, "\n".join([
+                "ALPHAWIN_J2000", "DELTAWIN_J2000",
+                "XWIN_IMAGE", "YWIN_IMAGE", 
+                "FWHM_IMAGE", "FWHM_WORLD", 
+                "BACKGROUND", 
+                "FLAGS", "EXT_NUMBER", 
+                "MAG_AUTO", "MAGERR_AUTO", 
+                "FLUX_MAX", 
+                "AWIN_IMAGE", "BWIN_IMAGE", "THETA_IMAGE", 
+                "ELONGATION", "ELLIPTICITY", 
+                "NUMBER",
+                ])
+        sexconf = {
+            "CATALOG_NAME":      "test.cat",
+            "CATALOG_TYPE":      "ASCII_HEAD",
+            "PARAMETERS_NAME":   "default.param",
+            "DETECT_MINAREA":    "5",
+            "DETECT_MAXAREA":    "0",
+            "THRESH_TYPE":       "RELATIVE",
+            "DETECT_THRESH":     "1.5",
+            "ANALYSIS_THRESH":   "1.5",
+            "FILTER":            "N",
+            "WEIGHT_TYPE":       "NONE",
+            "RESCALE_WEIGHTS":   "Y",
+            "WEIGHT_IMAGE":      "weight.fits",
+            "WEIGHT_GAIN ":      "Y",
+            "MAG_ZEROPOINT":     "26.0",
+            "GAIN":              "0.0",
+            "GAIN_KEY":          "GAIN",
+            "CHECKIMAGE_TYPE":   "NONE",
+            "VERBOSE_TYPE":      "NORMAL",
+        }
+        options = ""
+        for key, value in sexconf.iteritems():
+            print key, value
+            options += "-%s %s " % (key, value)
 
+        cmd = "sex %s %s" % (options, self.fitsfile)
+        print cmd
+        os.system(cmd)
+        catalog = numpy.loadtxt("test.cat")
+        print catalog.shape
+
+        
+        # now select a bunch of stars with the right amount of peak flux, 
+        # no flags, and a median fwhm
+        no_flags = (catalog[:, 7] == 0)
+        peak_flux = 450 #numpy.max(catalog[:, 11])
+        good_flux = (catalog[:,11] > 0.2 * peak_flux) & (catalog[:,11] < 0.5*peak_flux)
+        catalog = catalog[no_flags & good_flux]
+        numpy.savetxt("test2.cat", catalog)
+
+        good_fwhm = numpy.isfinite(catalog[:,4])
+        for i in range(3):
+            _sigm = scipy.stats.scoreatpercentile(catalog[:,4][good_fwhm], [16,50,84])
+            med = _sigm[1]
+            sigma = 0.5*(_sigm[2]-_sigm[0])
+            print med, sigma, _sigm
+            good_fwhm = (catalog[:,4] > (med-3*sigma)) & (catalog[:,4] < (med+3*sigma))
+
+        catalog = catalog[good_fwhm]
+        numpy.savetxt("test3.cat", catalog)
+
+        #
+        # Now save the source list as daophot-compatible LST file
+        #
+        self.files['lst'] = self.get_file('lst') #"test.lst" #
+        with open(self.files['lst'], "w") as lst:
+            print >>lst, """\
+ NL    NX    NY  LOWBAD HIGHBAD  THRESH     AP1  PH/ADU  RNOISE    FRAD
+  3  1664  1848   -28.4 32766.5  52.390   4.500 4165.08   4.596   6.000
+"""
+            catalog = catalog[:25]
+            catalog_lst = numpy.empty((catalog.shape[0], 6))
+            catalog_lst[:,0] = catalog[:,17]
+            catalog_lst[:,1:3] = catalog[:,2:4]
+            catalog_lst[:,3:5] = catalog[:, 9:11]
+            catalog_lst[:,5] = catalog[:, 16]
+            numpy.savetxt(lst,
+                          catalog_lst,
+                          "%d %.3f %.3f %3f %4f %3f")
+
+        print "\n"*10
+        
     def pick(self, nstars=15, maglimit=14, lst_file=None, ap_file=None):
 
         #
@@ -620,8 +706,8 @@ if __name__ == "__main__":
         dao.attach(tmpfile)
 
 
-        psf_width = 35.0
-        fitting_radius = 3 #10. #10*psf_width
+        psf_width = 25.0
+        fitting_radius = 10. #10*psf_width
         dao.options(thresh=options.threshold,
                     psf=psf_width,
                     fitting=fitting_radius,
@@ -635,7 +721,9 @@ if __name__ == "__main__":
 
         dao.phot(IS=10, OS=20, A1=4.5, A2=5)
 
-        dao.pick(nstars=25, maglimit=14)
+        dao.pick_midrange()
+
+        dao.pick(nstars=25, maglimit=18)
 
         good_psf = dao.psf(interactive=False)
 
