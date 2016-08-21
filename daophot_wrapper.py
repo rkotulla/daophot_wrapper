@@ -98,20 +98,22 @@ class ProcessHandler( object ):
 
 class DAOPHOT ( object ):
 
-    def __init__(self, options, fitsfile, threshold):
+    def __init__(self, options, fitsfile, threshold, dao_dir=None):
 
         self.cmd_options = options
         self.detection_threshold = threshold
         self.fitsfile = fitsfile
 
-        self.daophot_exe = "%s/daophot" % (self.cmd_options.dao_dir)
-        self.allstar_exe = "%s/allstar" % (self.cmd_options.dao_dir)
+        self.dao_dir = options.dao_dir if dao_dir is None else dao_dir
+
+        self.daophot_exe = "%s/daophot" % (self.dao_dir)
+        self.allstar_exe = "%s/allstar" % (self.dao_dir)
         
 
         #
         # open FITS file and read some important parameters
         #
-        self.hdulist =  pyfits.open(filename)
+        self.hdulist =  pyfits.open(self.fitsfile)
 
         self.gain = self.hdulist[0].header['GAIN'] if 'GAIN' in self.hdulist[0].header \
                     else 1.5
@@ -578,6 +580,7 @@ class ALLSTAR ( object ):
                  ap_file=None, 
                  als_file=None, 
                  starsub_file=None,
+                 dao_dir=None,
                  **kwargs):
 
         print "This all ALLSTAR"
@@ -585,7 +588,8 @@ class ALLSTAR ( object ):
         self.cmd_options = options
         self.fitsfile = fitsfile
 
-        self.allstar_exe = "%s/allstar" % (self.cmd_options.dao_dir)
+        self.dao_dir = options.dao_dir if dao_dir is None else dao_dir
+        self.allstar_exe = "%s/allstar" % (self.dao_dir)
 
         self.files = {}
         self.files['psf'] = self.get_file('psf') if psf_file == None else psf_file
@@ -647,6 +651,155 @@ class ALLSTAR ( object ):
                 pass
 
 
+
+
+class Daophot( object ):
+
+    def __init__(self, filename=None):
+        #
+        # Set all values that we will need
+        #
+        self.filename = filename
+
+        self.phot_params = {
+            'IS': 10,
+            'OS': 20,
+            'A1': 4.5,
+            'A2': 5,
+        }
+
+        self.pick_params = {
+            'nstars': 20,
+            'maglimit': 18,
+        }
+
+        self.threshold = 3
+        self.psf_width = 5
+        self.fitting_radius = 5
+        self.extra = 5
+        self.watch = 0
+
+        self.gain = 1.3
+        self.readnoise = 5
+        self.prescale = 1.0
+        self.add_sky = 0.0
+
+        self.dao = None
+        self.dao_dir = "/home/rkotulla/install/daophot2/"
+        #
+        #
+        #
+        pass
+
+    def set_gain(self, gain):
+        # if (type(gain) == str):
+        #     self.gain = hdulist[0].header['GAIN']
+        self.gain = gain
+        pass
+
+    def set_readnoise(self, readnoise):
+        # if (type(self.readnoise) == str):
+        #     self.readnoise = hdulist[0].header['RDNOISE']
+        self.readnoise = readnoise
+
+    def load(self, filename):
+        pass
+
+    def auto(self):
+
+        # open file and read some parameters
+        hdulist = pyfits.open(self.filename)
+
+
+        #
+        # If available, open the weight file, and set all undefined pixels
+        # to NaN to properly mask them out.
+        #
+        weightfile = self.filename[:-5] + ".weight.fits"
+        if (os.path.isfile(weightfile)):
+            weights_hdu = pyfits.open(weightfile)
+            weights = weights_hdu[0].data
+
+            hdulist[0].data[weights <= 0] = numpy.NaN
+
+        #
+        # Apply pre-scaling and re-add the background to allow proper
+        # noise estimation that we will need for source detection and to
+        # yield proper photometric errors.
+        #
+        hdulist[0].data = (hdulist[0].data * self.prescale) + self.add_sky
+
+        #
+        # write the hdulist as a temp-file
+        #
+        tmpfile = "/tmp/pid%d.fits" % (os.getpid())
+        hdulist.writeto(tmpfile, clobber=True)
+        print "tmp-file:", tmpfile
+
+        # time.sleep(2)
+
+        #
+        # Start daophot and read the FITS file.
+        #
+        self.dao = DAOPHOT(
+            options=None, #options,
+            fitsfile=tmpfile,
+            threshold=self.threshold,
+            dao_dir=self.dao_dir,
+        )
+
+        self.dao.attach(tmpfile)
+
+        #
+        # set DAOPhot internal parameters
+        #
+        #psf_width = 25.0
+        #fitting_radius = 10.  # 10*psf_width
+        self.dao.options(thresh=self.threshold,
+                    psf=self.psf_width,
+                    fitting=self.fitting_radius,
+                    extra=5,
+                    watch=0)
+
+        # estimate sky background
+        self.dao.sky()
+
+        # find sources; make sure to set the right number of sum/avg samples
+        self.dao.find(avg=1)
+
+        # run aperture photometry
+        self.dao.phot(
+            **self.phot_params
+        )
+        #    IS=10, OS=20, A1=4.5, A2=5)
+
+        # select appropriate PSF stars
+        self.dao.pick_midrange()
+        self.dao.pick(**self.pick_params)
+
+            #nstars=25, maglimit=18)
+
+        # estimate PSF
+        good_psf = self.dao.psf(interactive=False)
+
+        self.dao.exit()
+
+        outdir = os.getcwd()
+        self.dao.save_files(outdir)
+
+
+        #
+        # if we have a well-defined PSF, go on to fit all stars in the frame
+        # using ALLSTAR
+        #
+        if (good_psf):
+            # allstar = ALLSTAR(options, tmpfile, FIT=fitting_radius, IS=0, OS=4)
+            allstar = ALLSTAR(options, tmpfile, FIT=fitting_radius, IS=4, OS=40, dao_dir=self.dao_dir)
+            allstar.save_files(outdir)
+        else:
+            print "Can't run ALLSTAR since we did not derive a converged PSF fit"
+
+    pass
 
 def run_all_steps(options,
                   filename,
