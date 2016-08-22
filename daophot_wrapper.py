@@ -573,8 +573,107 @@ class DAOPHOT ( object ):
                 pass
 
 
+class APfile (object):
 
-class ALS( object ):
+    def __init__(self, filename):
+
+        self.nl = 0
+        self.nx = -1
+        self.ny = -1
+        self.lowbad = numpy.NaN
+        self.highbad = numpy.NaN
+        self.thresh = numpy.NaN
+        self.ap1 = numpy.NaN
+        self.gain = numpy.NaN
+        self.readnoise = numpy.NaN
+
+        self.src_stats = None
+        self.src_phot = None
+
+        self.column_description = [
+            "Star ID number",
+            "X coordinate of stellar centroid",
+            "Y coordinate of stellar centroid",
+            "Estimated modal sky value for the star",
+            "Standard deviation of the sky values about the mean",
+            "Skewness of the sky values about the mean",
+            "magnitude / error in apertures...",
+        ]
+
+        self.filename = filename
+        ap_return = self.read(self.filename)
+        if (ap_return is not None):
+            stats, src_stats, src_phot = ap_return
+            self.nl = int(stats[0])
+            self.nx = int(stats[1])
+            self.ny = int(stats[2])
+            self.lowbad = stats[3]
+            self.highbad = stats[4]
+            self.thresh = stats[5]
+            self.ap1 = stats[6]
+            self.gain = stats[7]
+            self.readnoise = stats[8]
+            self.fitting_radius = stats[9]
+
+            self.src_stats = src_stats
+            self.src_phot = src_phot
+
+        return
+
+    def read(self, filename):
+
+        with open(filename, "r") as apf:
+            header = apf.readline().strip()
+            stats_line = apf.readline().strip()
+            _ = apf.readline()
+
+            # Read all data and prepare to insert it into the data buffer
+            datablock_text = apf.readlines()
+            n_blocks = len(datablock_text) / 3
+
+
+            src_stats = numpy.empty((n_blocks, 6))
+            src_phot = numpy.empty((n_blocks, 12, 2))
+            src_phot[:,:,:] = numpy.NaN
+
+            stats = numpy.fromstring(stats_line, count=10, sep=' ')
+            #print "read a total of %d lines for %d blocks" % (len(datablock_text), len(datablock_text)/3)
+
+            for star_id in range(n_blocks): #len(datablock_text), step=3):
+                # print datablock_text[3*star_id+1]
+                line1 = numpy.fromstring(datablock_text[3*star_id+1], sep=' ')
+                line2 = numpy.fromstring(datablock_text[3 * star_id + 2], sep=' ')
+                src_stats[star_id, :3] = line1[:3]
+                src_stats[star_id, 3:] = line2[:3]
+
+                n_phot = line1.shape[0]-3
+                src_phot[star_id, :n_phot, 0] = line1[3:]
+                src_phot[star_id, :n_phot, 1] = line2[3:]
+
+            #print src_stats.shape, src_phot.shape
+
+            return stats, src_stats, src_phot
+
+        return None
+
+    def write(self, filename):
+        return
+
+    def dump(self):
+
+        # reformat the photometry
+        n_apertures = numpy.sum(numpy.isfinite(self.src_phot[0,:,0]))
+        phot = self.src_phot[:, :n_apertures, :]
+        phot_1d = phot.reshape((-1,n_apertures*2))
+        #print n_apertures, phot.shape, phot_1d.shape, self.src_stats.shape
+        combined = numpy.append(self.src_stats, phot_1d, axis=1)
+        #print combined.shape
+        print "\n".join(["Column % 2d: %s" % (i+1,s) for i,s in enumerate(self.column_description)])
+        numpy.savetxt(sys.stdout, combined)
+
+
+
+class ALSfile(object):
 
     def __init__(self, fn):
         self.filename = fn
@@ -726,7 +825,7 @@ class ALLSTAR ( object ):
         input = input_hdu[0].data
 
         # load the catalog of all sources computed by allstar
-        als = ALS(self.files['als'])
+        als = ALSfile(self.files['als'])
         data = als.data
 
         noise = numpy.sqrt( numpy.fabs(input)*als.gain + als.readnoise**2)
