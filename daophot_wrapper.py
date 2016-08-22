@@ -5,6 +5,7 @@ import subprocess
 import select
 import time
 import shutil
+import pyfits
 
 sys.path.append("/work/podi_prep56")
 from podi_definitions import *
@@ -360,7 +361,7 @@ class DAOPHOT ( object ):
             "GAIN":              "0.0",
             "GAIN_KEY":          "GAIN",
             "CHECKIMAGE_TYPE":   "NONE",
-            "VERBOSE_TYPE":      "NORMAL",
+            "VERBOSE_TYPE":      "QUIET",
         }
         options = ""
         for key, value in sexconf.iteritems():
@@ -573,6 +574,65 @@ class DAOPHOT ( object ):
 
 
 
+class ALS( object ):
+
+    def __init__(self, fn):
+        self.filename = fn
+
+        self.nl = 0
+        self.nx = -1
+        self.ny = -1
+        self.lowbad = numpy.NaN
+        self.highbad = numpy.NaN
+        self.thresh = numpy.NaN
+        self.ap1 = numpy.NaN
+        self.gain = numpy.NaN
+        self.readnoise = numpy.NaN
+        self.fiting_radius = numpy.NaN
+        self.data = None
+
+        als_return = self.read(self.filename)
+        if (als_return is not None):
+            stats, data = als_return
+
+            self.nl = stats[0]
+            self.nx = stats[1]
+            self.ny = stats[2]
+            self.lowbad = stats[3]
+            self.highbad = stats[4]
+            self.thresh = stats[5]
+            self.ap1 = stats[6]
+            self.gain = stats[7]
+            self.readnoise = stats[8]
+            self.fitting_radius = stats[9]
+
+            self.data = data
+
+    def read(self, filename):
+        with open(filename, "r") as f_als:
+            header = f_als.readline()
+            stats_line = f_als.readline()
+            _ = f_als.readline()
+            data = numpy.loadtxt(f_als)
+
+            print header.strip()
+            print stats_line.strip()
+            print data.shape
+
+            #
+            # convert stats from string to numbers
+            #
+            #         NL  NX   NY   LOWBAD  HIGHBAD  THRESH    AP1  PH/ADU  RNOISE   FRAD
+            types = [int, int, int,  float,   float,  float, float,  float,  float, float]
+            stats_items = stats_line.split()
+            stats = [None] * len(stats_items)
+            for i in range(len(stats_items)):
+                stats[i] = types[i](stats_items[i])
+            return stats, data
+
+        return None
+
+
 class ALLSTAR ( object ):
 
 
@@ -652,6 +712,19 @@ class ALLSTAR ( object ):
                 pass
 
 
+    def verify_real_star(self):
+        # open the star-subtracted file
+        print("Opening star-subtracted file: %s" % (self.files['als']))
+        starsub_hdu = pyfits.open(self.files['starsub'])
+        starsub = starsub_hdu[0].data
+
+        # load the catalog of all sources computed by allstar
+        als = ALS(self.files['als'])
+        data = als.data
+
+
+
+        pass
 
 
 class Daophot( object ):
@@ -847,6 +920,9 @@ class Daophot( object ):
                 dao_dir=self.dao_dir
             )
             self.allstar.save_files(outdir)
+
+            self.allstar.verify_real_star() #self.allstar.files['starsub'])
+
             self.write_final_results()
         else:
             print "Can't run ALLSTAR since we did not derive a converged PSF fit"
