@@ -11,6 +11,7 @@ from podi_definitions import *
 
 from optparse import OptionParser
 import scipy.stats
+import sitesetup
 
 class ProcessHandler( object ):
 
@@ -685,7 +686,10 @@ class Daophot( object ):
         self.add_sky = 0.0
 
         self.dao = None
-        self.dao_dir = "/home/rkotulla/install/daophot2/"
+        self.allstar = None
+        self.dao_dir = sitesetup.dao_dir
+
+        self.output_filename = None
 
         if (self.filename is not None):
             self.load()
@@ -709,6 +713,9 @@ class Daophot( object ):
 
         if (filename is not None):
             self.filename = filename
+
+        if (self.output_filename is None):
+            self.output_filename = self.filename[:-5]+".daophot_output.fits"
 
         hdulist = pyfits.open(self.filename)
 
@@ -739,6 +746,34 @@ class Daophot( object ):
         print "tmp-file:", self.tmpfile
 
         pass
+
+    def set_output(self, output_fn):
+        self.output_filename = output_fn
+
+    def write_final_results(self):
+        if (self.allstar is None):
+            # something went wrong
+            return False
+
+        #
+        # Open the resulting star-sub file and un-do the scaling we did
+        # before the DAOPhot & ALLSTAR runs
+        #
+        hdulist = pyfits.open(self.allstar.files['starsub'])
+        img = hdulist[0].data
+        img_corr = (img - self.add_sky) / self.prescale
+
+        # assemble all information to go into the output frame
+        out_hdulist = [pyfits.PrimaryHDU()]
+        out_hdulist.append(
+            pyfits.ImageHDU(data=img_corr, header=hdulist[0].header)
+        )
+
+        # write output file
+        out_hdulist = pyfits.HDUList(out_hdulist)
+        out_hdulist.writeto(self.output_filename, clobber=True)
+        return True
+
 
     def auto(self):
 
@@ -803,7 +838,7 @@ class Daophot( object ):
         #
         if (good_psf):
             # allstar = ALLSTAR(options, tmpfile, FIT=fitting_radius, IS=0, OS=4)
-            allstar = ALLSTAR(
+            self.allstar = ALLSTAR(
                 None,
                 self.tmpfile,
                 FIT=self.fitting_radius,
@@ -811,9 +846,11 @@ class Daophot( object ):
                 OS=40,
                 dao_dir=self.dao_dir
             )
-            allstar.save_files(outdir)
+            self.allstar.save_files(outdir)
+            self.write_final_results()
         else:
             print "Can't run ALLSTAR since we did not derive a converged PSF fit"
+
 
     pass
 

@@ -31,4 +31,8 @@ if __name__ == "__main__":
     dao.psf_width = 8
     dao.load(fn)
 
+    out_fn = fn[:-5]+".dao.fits"
+    dao.set_output(out_fn)
     dao.auto()
+
+
