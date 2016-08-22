@@ -1,0 +1,1 @@
+dao_dir = "/home/addon/daophot/"
