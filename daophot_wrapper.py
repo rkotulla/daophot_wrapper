@@ -632,6 +632,11 @@ class ALS( object ):
 
         return None
 
+    def write(self, filename):
+        pass
+
+
+
 
 class ALLSTAR ( object ):
 
@@ -712,20 +717,65 @@ class ALLSTAR ( object ):
                 pass
 
 
-    def verify_real_star(self):
+    def verify_real_star(self, noise_cutoff=-2, n_max_bad_pixels=2):
         # open the star-subtracted file
         print("Opening star-subtracted file: %s" % (self.files['als']))
         starsub_hdu = pyfits.open(self.files['starsub'])
         starsub = starsub_hdu[0].data
+        input_hdu = pyfits.open(self.fitsfile)
+        input = input_hdu[0].data
 
         # load the catalog of all sources computed by allstar
         als = ALS(self.files['als'])
         data = als.data
 
+        noise = numpy.sqrt( numpy.fabs(input)*als.gain + als.readnoise**2)
+        avg_sky = numpy.median(data[:,5])
 
+        # add some padding to the input image to avoid problems for
+        # sources close to any of the edges
+        fitting_radius = int(numpy.round(als.fitting_radius,0))
+        img_padded = numpy.pad(
+            starsub,
+            pad_width=int(fitting_radius),
+            mode='constant',
+            constant_values=numpy.NaN
+        )
+        noise_padded = numpy.pad(
+            noise,
+            pad_width=int(fitting_radius),
+            mode='constant',
+            constant_values=numpy.NaN
+        )
+        is_star = numpy.isfinite(data[:,0])
+
+        pyfits.PrimaryHDU(data=((img_padded-avg_sky)/noise_padded)[fitting_radius:-fitting_radius, fitting_radius:-fitting_radius]).writeto("s2n.fits", clobber=True)
+
+        for isrc, src in enumerate(als.data):
+            center_x = src[1]
+            center_y = src[2]
+            local_sky = src[5]
+            print center_x, center_y, src
+
+            cx = int(numpy.round(center_x,0)) + fitting_radius
+            cy = int(numpy.round(center_y, 0)) + fitting_radius
+
+            box = img_padded[cy-fitting_radius:cy+fitting_radius, cx-fitting_radius:cx+fitting_radius]
+            good = box[numpy.isfinite(box)]
+            if (good.size <= 0):
+                is_star[isrc] = False
+
+            noise_box = noise_padded[cy-fitting_radius:cy+fitting_radius, cx-fitting_radius:cx+fitting_radius]
+            s2n = (box - local_sky) / noise_box
+
+            bad_pixels = s2n < noise_cutoff
+            if (numpy.sum(bad_pixels) > n_max_bad_pixels):
+                is_star[isrc] = False
+
+        bad_stars = data[~is_star]
+        numpy.savetxt("bad_stars", bad_stars)
 
         pass
-
 
 class Daophot( object ):
 
