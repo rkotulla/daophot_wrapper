@@ -686,6 +686,9 @@ class Daophot( object ):
 
         self.dao = None
         self.dao_dir = "/home/rkotulla/install/daophot2/"
+
+        if (self.filename is not None):
+            self.load()
         #
         #
         #
@@ -702,12 +705,11 @@ class Daophot( object ):
         #     self.readnoise = hdulist[0].header['RDNOISE']
         self.readnoise = readnoise
 
-    def load(self, filename):
-        pass
+    def load(self, filename=None):
 
-    def auto(self):
+        if (filename is not None):
+            self.filename = filename
 
-        # open file and read some parameters
         hdulist = pyfits.open(self.filename)
 
 
@@ -732,9 +734,16 @@ class Daophot( object ):
         #
         # write the hdulist as a temp-file
         #
-        tmpfile = "/tmp/pid%d.fits" % (os.getpid())
-        hdulist.writeto(tmpfile, clobber=True)
-        print "tmp-file:", tmpfile
+        self.tmpfile = "/tmp/pid%d.fits" % (os.getpid())
+        hdulist.writeto(self.tmpfile, clobber=True)
+        print "tmp-file:", self.tmpfile
+
+        pass
+
+    def auto(self):
+
+        # open file and read some parameters
+        # self.load()
 
         # time.sleep(2)
 
@@ -743,12 +752,12 @@ class Daophot( object ):
         #
         self.dao = DAOPHOT(
             options=None, #options,
-            fitsfile=tmpfile,
+            fitsfile=self.tmpfile,
             threshold=self.threshold,
             dao_dir=self.dao_dir,
         )
 
-        self.dao.attach(tmpfile)
+        self.dao.attach(self.tmpfile)
 
         #
         # set DAOPhot internal parameters
@@ -794,7 +803,14 @@ class Daophot( object ):
         #
         if (good_psf):
             # allstar = ALLSTAR(options, tmpfile, FIT=fitting_radius, IS=0, OS=4)
-            allstar = ALLSTAR(options, tmpfile, FIT=fitting_radius, IS=4, OS=40, dao_dir=self.dao_dir)
+            allstar = ALLSTAR(
+                None,
+                self.tmpfile,
+                FIT=self.fitting_radius,
+                IS=4,
+                OS=40,
+                dao_dir=self.dao_dir
+            )
             allstar.save_files(outdir)
         else:
             print "Can't run ALLSTAR since we did not derive a converged PSF fit"
