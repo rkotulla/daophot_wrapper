@@ -671,6 +671,36 @@ class APfile (object):
         print "\n".join(["Column % 2d: %s" % (i+1,s) for i,s in enumerate(self.column_description)])
         numpy.savetxt(sys.stdout, combined)
 
+    def remove_stars(self, star_ids):
+
+        # sort all stars to be removed
+        star_ids_sorted = numpy.sort(star_ids)
+
+        # also sort the stars we have in the current catalog
+        si = numpy.argsort(self.src_stats[:,0])
+        src_stats_sorted = self.src_stats[si]
+        src_phot_sorted = self.src_phot[si]
+
+        #
+        # Now we have both a sorted list of stars and a list of stars to be removed
+        #
+        keep_star = numpy.isfinite(src_stats_sorted[:,0])
+
+        i_search = 0
+        for remove_id in star_ids_sorted:
+            for i in range(i_search, src_stats_sorted.shape[0]):
+                if (src_stats_sorted[i,0] == remove_id):
+                    keep_star[i] = False
+                    i_search = i+1
+                    break
+
+        numpy.savetxt("input", src_stats_sorted)
+        numpy.savetxt("output", src_stats_sorted[keep_star])
+
+        self.src_stats = src_stats_sorted[keep_star]
+        self.src_phot = src_phot_sorted[keep_star]
+
+        return
 
 
 class ALSfile(object):
@@ -874,7 +904,8 @@ class ALLSTAR ( object ):
         bad_stars = data[~is_star]
         numpy.savetxt("bad_stars", bad_stars)
 
-        pass
+        bad_star_ids = data[~is_star][:,0]
+        return bad_star_ids
 
 class Daophot( object ):
 
@@ -1070,7 +1101,13 @@ class Daophot( object ):
             )
             self.allstar.save_files(outdir)
 
-            self.allstar.verify_real_star() #self.allstar.files['starsub'])
+            bad_stars = self.allstar.verify_real_star() #self.allstar.files['starsub'])
+            print bad_stars
+
+            print "removing bad stars from AP file"
+            ap = APfile(self.dao.files['ap'])
+            ap.remove_stars(bad_stars)
+
 
             self.write_final_results()
         else:
