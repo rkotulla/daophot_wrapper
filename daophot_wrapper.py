@@ -600,6 +600,8 @@ class APfile (object):
             "magnitude / error in apertures...",
         ]
 
+        self.n_apertures = 1
+
         self.filename = filename
         ap_return = self.read(self.filename)
         if (ap_return is not None):
@@ -617,6 +619,7 @@ class APfile (object):
 
             self.src_stats = src_stats
             self.src_phot = src_phot
+            self.n_apertures = numpy.sum(numpy.isfinite(self.src_phot[0,:,0]))
 
         return
 
@@ -657,14 +660,32 @@ class APfile (object):
         return None
 
     def write(self, filename):
+
+        print "writing AP file to %s" % (filename)
+        with open(filename, "w") as ap:
+            print >>ap, " NL    NX    NY  LOWBAD HIGHBAD  THRESH     AP1  PH/ADU  RNOISE    FRAD"
+            print >>ap, "%3d %5d %5d %7.1f %7.1f %7.3f %7.3f %7.3f %7.3f %7.3f" % (
+                self.nl, self.nx, self.ny,
+                self.lowbad, self.highbad,
+                self.thresh, self.ap1, self.gain, self.readnoise, self.fitting_radius,
+            )
+            print >>ap
+
+            for src in range(self.src_stats.shape[0]):
+                print >>ap
+                line1 = numpy.append(self.src_stats[src,0:3], self.src_phot[src,:self.n_apertures,0]).reshape((1,-1))
+                line2 = numpy.append(self.src_stats[src,3:6], self.src_phot[src,:self.n_apertures,1]).reshape((1,-1))
+                numpy.savetxt(ap, line1, fmt="%7d %8.3f %8.3f"+" %8.3f"*self.n_apertures)
+                numpy.savetxt(ap, line2, fmt="%14.3f %5.2f %5.2f %7.4f"+" %8.4f"*(self.n_apertures-1))
+
+
         return
 
     def dump(self):
 
         # reformat the photometry
-        n_apertures = numpy.sum(numpy.isfinite(self.src_phot[0,:,0]))
-        phot = self.src_phot[:, :n_apertures, :]
-        phot_1d = phot.reshape((-1,n_apertures*2))
+        phot = self.src_phot[:, :self.n_apertures, :]
+        phot_1d = phot.reshape((-1,self.n_apertures*2))
         #print n_apertures, phot.shape, phot_1d.shape, self.src_stats.shape
         combined = numpy.append(self.src_stats, phot_1d, axis=1)
         #print combined.shape
@@ -1104,10 +1125,29 @@ class Daophot( object ):
             bad_stars = self.allstar.verify_real_star() #self.allstar.files['starsub'])
             print bad_stars
 
-            print "removing bad stars from AP file"
+            print("removing bad stars from AP file")
             ap = APfile(self.dao.files['ap'])
             ap.remove_stars(bad_stars)
+            new_ap_fn = self.tmpfile[:-5]+".cleanap"
+            print("writing new cleaned input catalog for ALLSTAR to %s" % (new_ap_fn))
+            ap.write(new_ap_fn)
 
+            new_als_file = self.tmpfile[:-5]+".cleanals"
+            new_starsub_file = self.tmpfile[:-5]+".cleanstarsub.fits"
+
+            print("Re-running ALLSTAR with the cleaned input source catalog")
+            self.allstar = ALLSTAR(
+                None,
+                self.tmpfile,
+                FIT=self.fitting_radius,
+                IS=4,
+                OS=40,
+                dao_dir=self.dao_dir,
+                ap_file=new_ap_fn,
+                als_file=new_als_file,
+                starsub_file=new_starsub_file,
+            )
+            self.allstar.save_files(outdir)
 
             self.write_final_results()
         else:
