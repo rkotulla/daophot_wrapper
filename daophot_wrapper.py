@@ -331,7 +331,7 @@ class DAOPHOT ( object ):
 
     def pick_midrange(self):
 
-        _, self.sextractor_catalog_fn = tempfile.mkstemp(suffix="cat", dir=sitesetup.scratch_dir)
+        _, self.sextractor_catalog_fn = tempfile.mkstemp(suffix=".cat", dir=sitesetup.scratch_dir)
 
         with open("default.param", "w") as param:
             print >>param, "\n".join([
@@ -345,6 +345,8 @@ class DAOPHOT ( object ):
                 "AWIN_IMAGE", "BWIN_IMAGE", "THETA_IMAGE", 
                 "ELONGATION", "ELLIPTICITY", 
                 "NUMBER",
+                "KRON_RADIUS", "PETRO_RADIUS",
+                #"MAG_PSF", "MAGERR_PSF",
                 ])
         sexconf = {
             "CATALOG_NAME":      self.sextractor_catalog_fn,
@@ -1077,8 +1079,38 @@ class ALLSTAR ( object ):
             s2n = (box - local_sky) / noise_box
 
             bad_pixels = s2n < noise_cutoff
-            if (numpy.sum(bad_pixels) > n_max_bad_pixels):
+
+            # calculate local noise from the std.deviation of the s/n residuals
+            good_s2n = s2n[numpy.isfinite(s2n)]
+            for iter in range(3):
+                noise_stats = numpy.nanpercentile(good_s2n, [16, 84, 50])
+                _median = noise_stats[2]
+                _sigma = (noise_stats[1] - noise_stats[0]) / 2.
+                _outlier = (good_s2n < (_median - 3*_sigma)) | (good_s2n > (_median+3*_sigma))
+                good_s2n[_outlier] = numpy.NaN
+
+            # now count how many outliers we have that lie outside the 3-sigma noise range
+            over_subtracted = s2n < (_median - 3*_sigma)
+            under_subtracted = s2n > (_median +3*_sigma)
+            excess = numpy.sum(over_subtracted) - numpy.sum(under_subtracted)
+            if (excess > n_max_bad_pixels):
                 is_star[isrc] = False
+
+            # if (numpy.sum(bad_pixels) > n_max_bad_pixels):
+            #     is_star[isrc] = False
+
+            src_id = src[0]
+            dummy = numpy.empty((box.shape[0], box.shape[1], 5))
+            dummy[:,:,0] = box[:,:]
+            dummy[:,:,1] = noise_box[:,:]
+            dummy[:,:,2] = (box-local_sky)[:,:]
+            dummy[:,:,3] = s2n[:,:]
+            dummy[:,:,4] = (s2n > (_median+3*_sigma)) | (s2n < (_median-3*_sigma))
+            numpy.savetxt("residuals.%04d" % (src_id), dummy.reshape((-1,5)),
+                          header="NOISE: %f %f %f %f %d %d" % (
+                              _median, _sigma, noise_stats[0], noise_stats[1],
+                          numpy.sum(under_subtracted), numpy.sum(over_subtracted)))
+
 
         bad_stars = data[~is_star]
         numpy.savetxt("bad_stars", bad_stars)
