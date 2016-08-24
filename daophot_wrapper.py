@@ -723,6 +723,60 @@ class APfile (object):
 
         return
 
+    def to_FITS_table(self, name=None):
+        print "converting ALS file to FITS table"
+
+        columns = [
+            pyfits.Column(name="STAR_ID",
+                          format='I', unit="",
+                          array=self.src_stats[:,0].astype(numpy.int)),
+            pyfits.Column(name="X",
+                          format='E', unit="pixels",
+                          array=self.src_stats[:,1]),
+            pyfits.Column(name="Y",
+                          format='E', unit="pixels",
+                          array=self.src_stats[:, 2]),
+
+            pyfits.Column(name="SKY",
+                          format='E', unit="magnitude",
+                          array=self.src_stats[:, 3]),
+            pyfits.Column(name="SKYNOISE",
+                          format='E', unit="magnitude",
+                          array=self.src_stats[:, 4]),
+            pyfits.Column(name="SKYSKEW",
+                          format='E', unit="magnitude",
+                          array=self.src_stats[:, 5]),
+        ]
+        for iap in range(self.n_apertures):
+            columns.extend(
+                [
+                    pyfits.Column(name="MAG_%02d" % (i_ap+1),
+                          format='E', unit="magnitude",
+                          array=self.src_phot[:, iap, 0]),
+                    pyfits.Column(name="MAGERR_%02d" % (iap+1),
+                          format='E', unit="magnitude",
+                          array=self.src_phot[:, ip, 1]),
+                ]
+            )
+        coldefs = pyfits.ColDefs(columns)
+        tbhdu = pyfits.BinTableHDU.from_columns(coldefs)
+
+        if (name is not None):
+            tbhdu.name = name
+
+        tbhdu.header['NL'] = (self.nl, "")
+        tbhdu.header['NX'] = (self.nx, "img size X")
+        tbhdu.header['NY'] = (self.ny, "img size Y")
+        tbhdu.header['LOWBAD'] = (self.lowbad, "lower good data limit")
+        tbhdu.header['HIGHBAD'] = (self.highbad, "upper good data limit")
+        tbhdu.header['THRESH'] = (self.thresh, "rel. detection threshold")
+        tbhdu.header['AP1'] = (-1 if numpy.isnan(self.ap1) else self.ap1, "radius of first apertures in pixels")
+        tbhdu.header['GAIN'] = (-1 if numpy.isnan(self.gain) else self.gain, "photons/ADU")
+        tbhdu.header['RDNOISE'] = (-1 if numpy.isnan(self.readnoise) else self.readnoise, "readnoise")
+        tbhdu.header['FITRAD'] = (-1 if numpy.isnan(self.fiting_radius) else self.fitting_radius, "user-defined fitting radius [px]")
+
+        return tbhdu
+
 
 class ALSfile(object):
 
@@ -785,8 +839,108 @@ class ALSfile(object):
     def write(self, filename):
         pass
 
+    def to_FITS_table(self, name=None):
+        print "converting ALS file to FITS table"
+
+        columns = [
+            pyfits.Column(name="STAR_ID",
+                          format='I', unit="",
+                          array=self.data[:,0].astype(numpy.int)),
+            pyfits.Column(name="X",
+                          format='E', unit="pixels",
+                          array=self.data[:,1]),
+            pyfits.Column(name="Y",
+                          format='E', unit="pixels",
+                          array=self.data[:, 2]),
+
+            pyfits.Column(name="PSFMAG",
+                          format='E', unit="magnitude",
+                          array=self.data[:, 3]),
+            pyfits.Column(name="PSFMAG_ERR",
+                          format='E', unit="magnitude",
+                          array=self.data[:, 4]),
+
+            pyfits.Column(name="SKY",
+                          format='E', unit="counts",
+                          array=self.data[:, 5]),
+
+            pyfits.Column(name="N_ITERATIONS",
+                          format='I', unit="",
+                          array=self.data[:, 6].astype(numpy.int)),
+            pyfits.Column(name="CHI2",
+                          format='E', unit="",
+                          array=self.data[:, 7]),
+            pyfits.Column(name="SHARPNESS",
+                          format='E', unit="counts",
+                          array=self.data[:, 8]),
+        ]
+        coldefs = pyfits.ColDefs(columns)
+        tbhdu = pyfits.BinTableHDU.from_columns(coldefs)
+
+        if (name is not None):
+            tbhdu.name = name
+
+        tbhdu.header['NL'] = (self.nl, "")
+        tbhdu.header['NX'] = (self.nx, "img size X")
+        tbhdu.header['NY'] = (self.ny, "img size Y")
+        tbhdu.header['LOWBAD'] = (self.lowbad, "lower good data limit")
+        tbhdu.header['HIGHBAD'] = (self.highbad, "upper good data limit")
+        tbhdu.header['THRESH'] = (self.thresh, "rel. detection threshold")
+        tbhdu.header['AP1'] = (-1 if numpy.isnan(self.ap1) else self.ap1, "radius of first apertures in pixels")
+        tbhdu.header['GAIN'] = (-1 if numpy.isnan(self.gain) else self.gain, "photons/ADU")
+        tbhdu.header['RDNOISE'] = (-1 if numpy.isnan(self.readnoise) else self.readnoise, "readnoise")
+        tbhdu.header['FITRAD'] = (-1 if numpy.isnan(self.fiting_radius) else self.fitting_radius, "user-defined fitting radius [px]")
+
+        return tbhdu
 
 
+class COOfile( ALSfile ):
+
+    def to_FITS_table(self, name=None):
+        print "converting COO file to FITS table"
+
+        columns = [
+            pyfits.Column(name="STAR_ID",
+                          format='I', unit="",
+                          array=self.data[:, 0].astype(numpy.int)),
+            pyfits.Column(name="X",
+                          format='E', unit="pixels",
+                          array=self.data[:, 1]),
+            pyfits.Column(name="Y",
+                          format='E', unit="pixels",
+                          array=self.data[:, 2]),
+
+            pyfits.Column(name="INSTMAG",
+                          format='E', unit="magnitude",
+                          array=self.data[:, 3]),
+
+            pyfits.Column(name="SHARPNESS",
+                          format='E', unit="",
+                          array=self.data[:, 4]),
+            pyfits.Column(name="ROUNDNESS",
+                          format='E', unit="",
+                          array=self.data[:, 5]),
+            pyfits.Column(name="MARGROUND",
+                          format='E', unit="",
+                          array=self.data[:, 6]),
+        ]
+        coldefs = pyfits.ColDefs(columns)
+        tbhdu = pyfits.BinTableHDU.from_columns(coldefs)
+
+        if (name is not None):
+            tbhdu.name = name
+
+        tbhdu.header['NL'] = (self.nl, "")
+        tbhdu.header['NX'] = (self.nx, "img size X")
+        tbhdu.header['NY'] = (self.ny, "img size Y")
+        tbhdu.header['LOWBAD'] = (self.lowbad, "lower good data limit")
+        tbhdu.header['HIGHBAD'] = (self.highbad, "upper good data limit")
+        tbhdu.header['THRESH'] = (self.thresh, "rel. detection threshold")
+        tbhdu.header['AP1'] = (-1 if numpy.isnan(self.ap1) else self.ap1, "radius of first apertures in pixels")
+        tbhdu.header['GAIN'] = (-1 if numpy.isnan(self.gain) else self.gain, "photons/ADU")
+        tbhdu.header['RDNOISE'] = (-1 if numpy.isnan(self.readnoise) else self.readnoise, "readnoise")
+        tbhdu.header['FITRAD'] = (-1 if numpy.isnan(self.fiting_radius) else self.fitting_radius, "user-defined fitting radius [px]")
+        return tbhdu
 
 class ALLSTAR ( object ):
 
@@ -949,7 +1103,7 @@ class Daophot( object ):
         }
 
         self.threshold = 3
-        self.psf_width = 5
+        self.psf_width = 25
         self.fitting_radius = 5
         self.extra = 5
         self.watch = 0
@@ -1024,7 +1178,7 @@ class Daophot( object ):
     def set_output(self, output_fn):
         self.output_filename = output_fn
 
-    def write_final_results(self):
+    def write_final_results(self, out_fn=None):
         if (self.allstar is None):
             # something went wrong
             return False
@@ -1043,13 +1197,33 @@ class Daophot( object ):
             pyfits.ImageHDU(data=img_corr, header=hdulist[0].header)
         )
 
+        # Read the COO file
+        coo_filename = self.dao.files['coo']
+        coo = COOfile(coo_filename)
+        coo_tbhdu = coo.to_FITS_table(name="COO")
+        out_hdulist.append(coo_tbhdu)
+
+        # Read the AP file
+        ap_filename = self.allstar.files['ap']
+        ap = APfile(ap_filename)
+        ap_tbhdu = ap.to_FITS_table(name="AP")
+        out_hdulist.append(ap_tbhdu)
+
+        # Read the ALS file
+        als_filename = self.allstar.files['als']
+        als = ALSfile(als_filename)
+        als_tbhdu = als.to_FITS_table(name="ALS")
+        out_hdulist.append(als_tbhdu)
+
         # write output file
         out_hdulist = pyfits.HDUList(out_hdulist)
-        out_hdulist.writeto(self.output_filename, clobber=True)
+        if (out_fn is None):
+            out_fn = self.output_filename
+        out_hdulist.writeto(out_fn, clobber=True)
         return True
 
 
-    def auto(self):
+    def auto(self, remove_nonstars=True, dao_intermediate_fn=None):
 
         # open file and read some parameters
         # self.load()
@@ -1116,39 +1290,43 @@ class Daophot( object ):
                 None,
                 self.tmpfile,
                 FIT=self.fitting_radius,
-                IS=4,
+                IS=20,
                 OS=40,
                 dao_dir=self.dao_dir
             )
             self.allstar.save_files(outdir)
 
-            bad_stars = self.allstar.verify_real_star() #self.allstar.files['starsub'])
-            print bad_stars
+            if (remove_nonstars):
+                if (dao_intermediate_fn is not None):
+                    self.write_final_results(out_fn=dao_intermediate_fn)
 
-            print("removing bad stars from AP file")
-            ap = APfile(self.dao.files['ap'])
-            ap.remove_stars(bad_stars)
-            new_ap_fn = self.tmpfile[:-5]+".cleanap"
-            print("writing new cleaned input catalog for ALLSTAR to %s" % (new_ap_fn))
-            ap.write(new_ap_fn)
+                bad_stars = self.allstar.verify_real_star()  # self.allstar.files['starsub'])
+                print bad_stars
 
-            new_als_file = self.tmpfile[:-5]+".cleanals"
-            new_starsub_file = self.tmpfile[:-5]+".cleanstarsub.fits"
+                print("removing bad stars from AP file")
+                ap = APfile(self.dao.files['ap'])
+                ap.remove_stars(bad_stars)
+                new_ap_fn = self.tmpfile[:-5]+".cleanap"
+                print("writing new cleaned input catalog for ALLSTAR to %s" % (new_ap_fn))
+                ap.write(new_ap_fn)
 
-            print("Re-running ALLSTAR with the cleaned input source catalog")
-            self.allstar = ALLSTAR(
-                None,
-                self.tmpfile,
-                FIT=self.fitting_radius,
-                IS=4,
-                OS=40,
-                dao_dir=self.dao_dir,
-                ap_file=new_ap_fn,
-                als_file=new_als_file,
-                starsub_file=new_starsub_file,
-            )
+                new_als_file = self.tmpfile[:-5]+".cleanals"
+                new_starsub_file = self.tmpfile[:-5]+".cleanstarsub.fits"
+
+                print("Re-running ALLSTAR with the cleaned input source catalog")
+                self.allstar = ALLSTAR(
+                    None,
+                    self.tmpfile,
+                    FIT=self.fitting_radius,
+                    IS=4,
+                    OS=40,
+                    dao_dir=self.dao_dir,
+                    ap_file=new_ap_fn,
+                    als_file=new_als_file,
+                    starsub_file=new_starsub_file,
+                )
+
             self.allstar.save_files(outdir)
-
             self.write_final_results()
         else:
             print "Can't run ALLSTAR since we did not derive a converged PSF fit"
