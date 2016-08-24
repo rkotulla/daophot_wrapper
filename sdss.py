@@ -27,12 +27,12 @@ if __name__ == "__main__":
     #dao.phot_params['A1'] = 10
     dao.phot_params['IS'] = 20
     dao.phot_params['OS'] = 25
-    dao.fitting_radius = 10
-    dao.psf_width = 8
+    dao.fitting_radius = 5 #10
+    dao.psf_width = 25
     dao.load(fn)
 
     out_fn = fn[:-5]+".dao.fits"
     dao.set_output(out_fn)
-    dao.auto()
+    dao.auto(remove_nonstars=True, dao_intermediate_fn=fn[:-5]+".daoraw.fits")
 
 
