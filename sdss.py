@@ -11,7 +11,7 @@ import numpy
 
 if __name__ == "__main__":
 
-    for fn in sys.argv[1:]
+    for fn in sys.argv[1:]:
 
         hdulist = pyfits.open(fn)
 
