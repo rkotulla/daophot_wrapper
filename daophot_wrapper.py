@@ -126,6 +126,21 @@ class DAOPHOT ( object ):
         self.files = {}
         self.extra_cleanup_files = []
 
+        self.sextractor_fields = [
+                "ALPHAWIN_J2000", "DELTAWIN_J2000",
+                "XWIN_IMAGE", "YWIN_IMAGE",
+                "FWHM_IMAGE", "FWHM_WORLD",
+                "BACKGROUND",
+                "FLAGS", "EXT_NUMBER",
+                "MAG_AUTO", "MAGERR_AUTO",
+                "FLUX_MAX",
+                "AWIN_IMAGE", "BWIN_IMAGE", "THETA_IMAGE",
+                "ELONGATION", "ELLIPTICITY",
+                "NUMBER",
+                "KRON_RADIUS", "PETRO_RADIUS",
+                #"MAG_PSF", "MAGERR_PSF",
+                ]
+
         self.running = False
         if (not self.running):
             self.start_daophot()
@@ -335,20 +350,7 @@ class DAOPHOT ( object ):
         _, self.sextractor_catalog_fn = tempfile.mkstemp(suffix=".cat", dir=sitesetup.scratch_dir)
 
         with open("default.param", "w") as param:
-            print >>param, "\n".join([
-                "ALPHAWIN_J2000", "DELTAWIN_J2000",
-                "XWIN_IMAGE", "YWIN_IMAGE", 
-                "FWHM_IMAGE", "FWHM_WORLD", 
-                "BACKGROUND", 
-                "FLAGS", "EXT_NUMBER", 
-                "MAG_AUTO", "MAGERR_AUTO", 
-                "FLUX_MAX", 
-                "AWIN_IMAGE", "BWIN_IMAGE", "THETA_IMAGE", 
-                "ELONGATION", "ELLIPTICITY", 
-                "NUMBER",
-                "KRON_RADIUS", "PETRO_RADIUS",
-                #"MAG_PSF", "MAGERR_PSF",
-                ])
+            print >>param, "\n".join(self.sextractor_fields)
         sexconf = {
             "CATALOG_NAME":      self.sextractor_catalog_fn,
             "CATALOG_TYPE":      "ASCII_HEAD",
@@ -592,6 +594,23 @@ class DAOPHOT ( object ):
         for fn in self.extra_cleanup_files:
             if (os.path.isfile(fn)):
                 os.remove(fn)
+
+    def sextractor_catalog_to_FITS_table(self, name=None):
+
+        columns = []
+        for f_id, field_name in enumerate(self.sextractor_fields):
+            columns.append(
+                pyfits.Column(name=field_name,
+                                format='E', unit="",
+                                array=self.sextractor_catalog[:,f_id])
+            )
+        coldefs = pyfits.ColDefs(columns)
+        tbhdu = pyfits.BinTableHDU.from_columns(coldefs)
+
+        if (name is not None):
+            tbhdu.name = name
+
+        return tbhdu
 
 
 class APfile (object):
@@ -1114,17 +1133,17 @@ class ALLSTAR ( object ):
             # if (numpy.sum(bad_pixels) > n_max_bad_pixels):
             #     is_star[isrc] = False
 
-            src_id = src[0]
-            dummy = numpy.empty((box.shape[0], box.shape[1], 5))
-            dummy[:,:,0] = box[:,:]
-            dummy[:,:,1] = noise_box[:,:]
-            dummy[:,:,2] = (box-local_sky)[:,:]
-            dummy[:,:,3] = s2n[:,:]
-            dummy[:,:,4] = (s2n > (_median+3*_sigma)) | (s2n < (_median-3*_sigma))
-            numpy.savetxt("residuals.%04d" % (src_id), dummy.reshape((-1,5)),
-                          header="NOISE: %f %f %f %f %d %d" % (
-                              _median, _sigma, noise_stats[0], noise_stats[1],
-                          numpy.sum(under_subtracted), numpy.sum(over_subtracted)))
+            # src_id = src[0]
+            # dummy = numpy.empty((box.shape[0], box.shape[1], 5))
+            # dummy[:,:,0] = box[:,:]
+            # dummy[:,:,1] = noise_box[:,:]
+            # dummy[:,:,2] = (box-local_sky)[:,:]
+            # dummy[:,:,3] = s2n[:,:]
+            # dummy[:,:,4] = (s2n > (_median+3*_sigma)) | (s2n < (_median-3*_sigma))
+            # numpy.savetxt("residuals.%04d" % (src_id), dummy.reshape((-1,5)),
+            #               header="NOISE: %f %f %f %f %d %d" % (
+            #                   _median, _sigma, noise_stats[0], noise_stats[1],
+            #               numpy.sum(under_subtracted), numpy.sum(over_subtracted)))
 
 
         bad_stars = data[~is_star]
@@ -1275,6 +1294,10 @@ class Daophot( object ):
         als = ALSfile(als_filename)
         als_tbhdu = als.to_FITS_table(name="ALS")
         out_hdulist.append(als_tbhdu)
+
+        if (self.dao is not None):
+            sex_tbhdu = self.dao.sextractor_catalog_to_FITS_table(name="SEXTRACTOR")
+            out_hdulist.append(sex_tbhdu)
 
         # write output file
         out_hdulist = pyfits.HDUList(out_hdulist)
