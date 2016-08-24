@@ -6,6 +6,7 @@ import select
 import time
 import shutil
 import pyfits
+import tempfile
 
 sys.path.append("/work/podi_prep56")
 from podi_definitions import *
@@ -329,7 +330,9 @@ class DAOPHOT ( object ):
         # phot, found = daophot.read_until(["Command:"], timeout=-1)
 
     def pick_midrange(self):
-        
+
+        _, self.sextractor_catalog_fn = tempfile.mkstemp(suffix="cat", dir=sitesetup.scratch_dir)
+
         with open("default.param", "w") as param:
             print >>param, "\n".join([
                 "ALPHAWIN_J2000", "DELTAWIN_J2000",
@@ -344,7 +347,7 @@ class DAOPHOT ( object ):
                 "NUMBER",
                 ])
         sexconf = {
-            "CATALOG_NAME":      "test.cat",
+            "CATALOG_NAME":      self.sextractor_catalog_fn,
             "CATALOG_TYPE":      "ASCII_HEAD",
             "PARAMETERS_NAME":   "default.param",
             "DETECT_MINAREA":    "5",
@@ -371,10 +374,11 @@ class DAOPHOT ( object ):
         cmd = "sex %s %s" % (options, self.fitsfile)
         print cmd
         os.system(cmd)
-        catalog = numpy.loadtxt("test.cat")
+        catalog = numpy.loadtxt(self.sextractor_catalog_fn)
+        self.sextractor_catalog = numpy.array(catalog)
+
         print catalog.shape
 
-        
         # now select a bunch of stars with the right amount of peak flux, 
         # no flags, and a median fwhm
         no_flags = (catalog[:, 7] == 0)
@@ -750,12 +754,12 @@ class APfile (object):
         for iap in range(self.n_apertures):
             columns.extend(
                 [
-                    pyfits.Column(name="MAG_%02d" % (i_ap+1),
+                    pyfits.Column(name="MAG_%02d" % (iap+1),
                           format='E', unit="magnitude",
                           array=self.src_phot[:, iap, 0]),
                     pyfits.Column(name="MAGERR_%02d" % (iap+1),
                           format='E', unit="magnitude",
-                          array=self.src_phot[:, ip, 1]),
+                          array=self.src_phot[:, iap, 1]),
                 ]
             )
         coldefs = pyfits.ColDefs(columns)
@@ -773,7 +777,7 @@ class APfile (object):
         tbhdu.header['AP1'] = (-1 if numpy.isnan(self.ap1) else self.ap1, "radius of first apertures in pixels")
         tbhdu.header['GAIN'] = (-1 if numpy.isnan(self.gain) else self.gain, "photons/ADU")
         tbhdu.header['RDNOISE'] = (-1 if numpy.isnan(self.readnoise) else self.readnoise, "readnoise")
-        tbhdu.header['FITRAD'] = (-1 if numpy.isnan(self.fiting_radius) else self.fitting_radius, "user-defined fitting radius [px]")
+        tbhdu.header['FITRAD'] = (-1 if numpy.isnan(self.fitting_radius) else self.fitting_radius, "user-defined fitting radius [px]")
 
         return tbhdu
 
@@ -889,7 +893,7 @@ class ALSfile(object):
         tbhdu.header['AP1'] = (-1 if numpy.isnan(self.ap1) else self.ap1, "radius of first apertures in pixels")
         tbhdu.header['GAIN'] = (-1 if numpy.isnan(self.gain) else self.gain, "photons/ADU")
         tbhdu.header['RDNOISE'] = (-1 if numpy.isnan(self.readnoise) else self.readnoise, "readnoise")
-        tbhdu.header['FITRAD'] = (-1 if numpy.isnan(self.fiting_radius) else self.fitting_radius, "user-defined fitting radius [px]")
+        tbhdu.header['FITRAD'] = (-1 if numpy.isnan(self.fitting_radius) else self.fitting_radius, "user-defined fitting radius [px]")
 
         return tbhdu
 
@@ -939,7 +943,7 @@ class COOfile( ALSfile ):
         tbhdu.header['AP1'] = (-1 if numpy.isnan(self.ap1) else self.ap1, "radius of first apertures in pixels")
         tbhdu.header['GAIN'] = (-1 if numpy.isnan(self.gain) else self.gain, "photons/ADU")
         tbhdu.header['RDNOISE'] = (-1 if numpy.isnan(self.readnoise) else self.readnoise, "readnoise")
-        tbhdu.header['FITRAD'] = (-1 if numpy.isnan(self.fiting_radius) else self.fitting_radius, "user-defined fitting radius [px]")
+        tbhdu.header['FITRAD'] = (-1 if numpy.isnan(self.fitting_radius) else self.fitting_radius, "user-defined fitting radius [px]")
         return tbhdu
 
 class ALLSTAR ( object ):
