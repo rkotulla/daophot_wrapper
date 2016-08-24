@@ -124,6 +124,7 @@ class DAOPHOT ( object ):
                          else 6.5
 
         self.files = {}
+        self.extra_cleanup_files = []
 
         self.running = False
         if (not self.running):
@@ -378,6 +379,7 @@ class DAOPHOT ( object ):
         os.system(cmd)
         catalog = numpy.loadtxt(self.sextractor_catalog_fn)
         self.sextractor_catalog = numpy.array(catalog)
+        self.extra_cleanup_files.append(self.sextractor_catalog_fn)
 
         print catalog.shape
 
@@ -483,7 +485,10 @@ class DAOPHOT ( object ):
         elif (not 'psf' in self.files):
             self.files['psf'] = self.get_file('psf')
         clobberfile(self.files['psf'])
-        
+
+        # also create an entry for the neighbor file to make sure we also clean up that file
+        self.files['nei'] = self.get_file('nei')
+
         self.daophot.write("%s\n" % (self.files['psf']))
 
         done = False
@@ -577,6 +582,16 @@ class DAOPHOT ( object ):
                 shutil.copyfile(fn, "%s/%s" % (out_directory, bn))
             except:
                 pass
+
+
+    def cleanup(self):
+        for x in self.files:
+            fn = self.files[x]
+            if (os.path.isfile(fn)):
+                os.remove(fn)
+        for fn in self.extra_cleanup_files:
+            if (os.path.isfile(fn)):
+                os.remove(fn)
 
 
 class APfile (object):
@@ -1118,6 +1133,12 @@ class ALLSTAR ( object ):
         bad_star_ids = data[~is_star][:,0]
         return bad_star_ids
 
+    def cleanup(self):
+        for x in self.files:
+            fn = self.files[x]
+            if (os.path.isfile(fn)):
+                os.remove(fn)
+
 class Daophot( object ):
 
     def __init__(self, filename=None):
@@ -1155,8 +1176,11 @@ class Daophot( object ):
 
         self.output_filename = None
 
+        self.extra_cleanup_files = []
+
         if (self.filename is not None):
             self.load()
+
         #
         #
         #
@@ -1205,9 +1229,10 @@ class Daophot( object ):
         #
         # write the hdulist as a temp-file
         #
-        self.tmpfile = "/tmp/pid%d.fits" % (os.getpid())
+        _, self.tmpfile = tempfile.mkstemp(suffix=".fits", dir=sitesetup.scratch_dir)
         hdulist.writeto(self.tmpfile, clobber=True)
         print "tmp-file:", self.tmpfile
+        self.extra_cleanup_files.append(self.tmpfile)
 
         pass
 
@@ -1313,7 +1338,7 @@ class Daophot( object ):
         self.dao.exit()
 
         outdir = os.getcwd()
-        self.dao.save_files(outdir)
+        #self.dao.save_files(outdir)
 
 
         #
@@ -1330,7 +1355,7 @@ class Daophot( object ):
                 OS=40,
                 dao_dir=self.dao_dir
             )
-            self.allstar.save_files(outdir)
+            # self.allstar.save_files(outdir)
 
             if (remove_nonstars):
                 if (dao_intermediate_fn is not None):
@@ -1338,6 +1363,12 @@ class Daophot( object ):
 
                 bad_stars = self.allstar.verify_real_star()  # self.allstar.files['starsub'])
                 print bad_stars
+
+                # make sure to remember the files we are going to replace
+                # DAOPhot only cleans up the files it knows about at the end
+                self.extra_cleanup_files.append(self.dao.files['ap'])
+                self.extra_cleanup_files.append(self.allstar.files['als'])
+                self.extra_cleanup_files.append(self.allstar.files['starsub'])
 
                 print("removing bad stars from AP file")
                 ap = APfile(self.dao.files['ap'])
@@ -1347,7 +1378,7 @@ class Daophot( object ):
                 ap.write(new_ap_fn)
 
                 new_als_file = self.tmpfile[:-5]+".cleanals"
-                new_starsub_file = self.tmpfile[:-5]+".cleanstarsub.fits"
+                new_starsub_file = self.tmpfile[:-5]+"_cleanstarsub.fits"
 
                 print("Re-running ALLSTAR with the cleaned input source catalog")
                 self.allstar = ALLSTAR(
@@ -1362,11 +1393,32 @@ class Daophot( object ):
                     starsub_file=new_starsub_file,
                 )
 
-            self.allstar.save_files(outdir)
+            # self.allstar.save_files(outdir)
             self.write_final_results()
         else:
             print "Can't run ALLSTAR since we did not derive a converged PSF fit"
 
+        self.cleanup()
+
+    def cleanup(self):
+        #
+        #  clean up all DAOPhot files
+        #
+        if (self.dao is not None):
+            self.dao.cleanup()
+        #
+        #  ... and all ALLSTAR files ...
+        #
+        if (self.allstar is not None):
+            self.allstar.cleanup()
+        #
+        # ... and any extra files we created in between
+        #
+        for fn in self.extra_cleanup_files:
+            if (os.path.isfile(fn)):
+                os.remove(fn)
+
+        return
 
     pass
 
