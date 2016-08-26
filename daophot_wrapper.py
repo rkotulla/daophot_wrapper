@@ -15,6 +15,8 @@ from optparse import OptionParser
 import scipy.stats
 import sitesetup
 
+numpy.seterr(all='ignore')
+
 class ProcessHandler( object ):
 
     def __init__(self, args, read_timeout=0.1, verbose=True, send_delay=0.0):
@@ -499,7 +501,9 @@ class DAOPHOT ( object ):
             retstr, found = self.daophot.read_until(["Use this one?",
                                                      "Try this one anyway?",
                                                      "Failed to converge",
-                                                     "File with PSF stars and neighbors"])
+                                                     "File with PSF stars and neighbors",
+                                                     "Parameters...",
+                                                     "Please change something"])
 
             if (found < 0):
                 continue
@@ -527,7 +531,7 @@ class DAOPHOT ( object ):
                 else:
                     self.daophot.write("no\n")
 
-            elif (found == 2):
+            elif (found in [2,4,5]):
                 # Failed to converge.
                 valid_psf_model = False
                 done = True
@@ -859,9 +863,9 @@ class ALSfile(object):
             _ = f_als.readline()
             data = numpy.loadtxt(f_als)
 
-            print header.strip()
-            print stats_line.strip()
-            print data.shape
+            # print header.strip()
+            # print stats_line.strip()
+            # print data.shape
 
             #
             # convert stats from string to numbers
@@ -1093,13 +1097,15 @@ class ALLSTAR ( object ):
         )
         is_star = numpy.isfinite(data[:,0])
 
-        pyfits.PrimaryHDU(data=((img_padded-avg_sky)/noise_padded)[fitting_radius:-fitting_radius, fitting_radius:-fitting_radius]).writeto("s2n.fits", clobber=True)
+        # phdu = pyfits.PrimaryHDU(
+        #     data=((img_padded-avg_sky)/noise_padded)[fitting_radius:-fitting_radius, fitting_radius:-fitting_radius])
+        # phdu.writeto("s2n.fits", clobber=True)
 
         for isrc, src in enumerate(als.data):
             center_x = src[1]
             center_y = src[2]
             local_sky = src[5]
-            print center_x, center_y, src
+            # print center_x, center_y, src
 
             cx = int(numpy.round(center_x,0)) + fitting_radius
             cy = int(numpy.round(center_y, 0)) + fitting_radius
@@ -1116,6 +1122,12 @@ class ALLSTAR ( object ):
 
             # calculate local noise from the std.deviation of the s/n residuals
             good_s2n = s2n[numpy.isfinite(s2n)]
+
+            if (good_s2n.size <= 0):
+                # all pixels invalid, mark this source as bad and move on
+                is_star[isrc] = False
+                continue
+
             for iter in range(3):
                 noise_stats = numpy.nanpercentile(good_s2n, [16, 84, 50])
                 _median = noise_stats[2]
@@ -1303,6 +1315,8 @@ class Daophot( object ):
         out_hdulist = pyfits.HDUList(out_hdulist)
         if (out_fn is None):
             out_fn = self.output_filename
+        if (os.path.isfile(out_fn)):
+            os.remove(out_fn)
         out_hdulist.writeto(out_fn, clobber=True)
         return True
 
@@ -1385,7 +1399,7 @@ class Daophot( object ):
                     self.write_final_results(out_fn=dao_intermediate_fn)
 
                 bad_stars = self.allstar.verify_real_star()  # self.allstar.files['starsub'])
-                print bad_stars
+                print("Removing %d bad stars from ALLSTAR input list" %(bad_stars.shape[0]))
 
                 # make sure to remember the files we are going to replace
                 # DAOPhot only cleans up the files it knows about at the end
@@ -1393,7 +1407,7 @@ class Daophot( object ):
                 self.extra_cleanup_files.append(self.allstar.files['als'])
                 self.extra_cleanup_files.append(self.allstar.files['starsub'])
 
-                print("removing bad stars from AP file")
+                # print("removing bad stars from AP file")
                 ap = APfile(self.dao.files['ap'])
                 ap.remove_stars(bad_stars)
                 new_ap_fn = self.tmpfile[:-5]+".cleanap"
